@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: ['playwright', '@playwright/browser-chromium'],
 };
 
 export default nextConfig;

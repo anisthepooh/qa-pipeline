@@ -25,15 +25,8 @@ export default function PastRunsPage() {
       .catch(() => setLoading(false))
   }, [dispatch])
 
-  const loadRun = async (id: string) => {
-    try {
-      const res = await fetch(`/api/runs/${id}`)
-      const data = await res.json()
-      dispatch({ type: 'SET_ACTIVE_RUN', payload: data })
-      router.push('/report')
-    } catch (e) {
-      console.error('Failed to load run', e)
-    }
+  const loadRun = (id: string) => {
+    router.push(`/past-runs/${id}`)
   }
 
   const deleteRun = async (e: React.MouseEvent, id: string) => {

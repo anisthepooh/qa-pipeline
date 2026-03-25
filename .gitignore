@@ -37,6 +37,10 @@ yarn-error.log*
 # pocketbase
 /pocketbase/pb_data/
 /pocketbase/pocketbase
+/PocketBase/pb_data/
+/PocketBase/pocketbase
+/PocketBase/CHANGELOG.md
+/PocketBase/LICENSE.md
 
 # vercel
 .vercel

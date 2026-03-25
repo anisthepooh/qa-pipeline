@@ -10,11 +10,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const userId = pb.authStore.model?.id
-    const records = await pb.collection('runs').getList(1, 200, {
-      sort: '-date',
-      filter: `user = "${userId}"`,
-      fields: 'id,name,url,date,summary',
+    const adminPb = await getPbAdmin()
+    const records = await adminPb.collection('runs').getList(1, 200, {
+      sort: '-created',
     })
     return NextResponse.json(records.items.map(r => ({
       id: r.id,
@@ -25,6 +23,7 @@ export async function GET(req: NextRequest) {
     })))
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[GET /api/runs]', err)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

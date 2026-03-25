@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { usePipeline } from '@/context/PipelineContext'
 import { cn } from '@/lib/utils'
-import { Workflow, BarChart2, Search, Ticket, History, Loader2, Settings } from 'lucide-react'
+import { Workflow, BarChart2, Search, Ticket, History, Loader2, Settings, FolderOpen } from 'lucide-react'
 import { logout } from '@/lib/auth'
 import { useRouter } from 'next/navigation'
 
@@ -79,7 +79,14 @@ export default function Sidebar() {
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-5 sidebar-scroll overflow-y-auto">
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-3 mb-1.5">Setup</div>
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-3 mb-1.5">Projects</div>
+          <div className="space-y-0.5">
+            <NavItem href="/projects" icon={FolderOpen} label="All projects" />
+          </div>
+        </div>
+
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-3 mb-1.5">Run</div>
           <div className="space-y-0.5">
             <NavItem href="/setup" icon={Workflow} label="New run" />
           </div>

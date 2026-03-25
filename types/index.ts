@@ -1,4 +1,14 @@
+export interface Project {
+  id: string
+  name: string
+  url: string
+  description?: string
+  created: string
+  updated: string
+}
+
 export interface Config {
+  projectId?: string
   url: string
   runName: string
   tester: string
@@ -45,6 +55,7 @@ export interface Finding {
 
 export interface RunMeta {
   id: string
+  projectId?: string
   name: string
   url: string
   date: string
@@ -66,6 +77,7 @@ export interface RunSummary {
 
 export interface RunResult {
   id?: string
+  projectId?: string
   run: {
     name: string
     url: string

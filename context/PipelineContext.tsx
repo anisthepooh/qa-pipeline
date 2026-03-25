@@ -1,9 +1,11 @@
 'use client'
 
 import { createContext, useContext, useReducer, ReactNode } from 'react'
-import { Config, Story, RunResult, RunMeta } from '@/types'
+import { Config, Story, RunResult, RunMeta, Project } from '@/types'
 
 interface PipelineState {
+  projects: Project[]
+  activeProject: Project | null
   config: Config
   stories: Story[]
   activeRun: RunResult | null
@@ -11,7 +13,9 @@ interface PipelineState {
   isRunning: boolean
 }
 
-type Action =
+export type Action =
+  | { type: 'SET_PROJECTS'; payload: Project[] }
+  | { type: 'SET_ACTIVE_PROJECT'; payload: Project | null }
   | { type: 'SET_CONFIG'; payload: Partial<Config> }
   | { type: 'ADD_STORY'; payload: Story }
   | { type: 'REMOVE_STORY'; payload: number }
@@ -21,7 +25,10 @@ type Action =
   | { type: 'SET_RUNNING'; payload: boolean }
 
 const initialState: PipelineState = {
+  projects: [],
+  activeProject: null,
   config: {
+    projectId: undefined,
     url: '',
     runName: 'QA Run',
     tester: 'Claude (automated)',
@@ -35,6 +42,18 @@ const initialState: PipelineState = {
 
 function reducer(state: PipelineState, action: Action): PipelineState {
   switch (action.type) {
+    case 'SET_PROJECTS':
+      return { ...state, projects: action.payload }
+    case 'SET_ACTIVE_PROJECT':
+      return {
+        ...state,
+        activeProject: action.payload,
+        config: {
+          ...state.config,
+          projectId: action.payload?.id,
+          url: action.payload?.url || state.config.url,
+        },
+      }
     case 'SET_CONFIG':
       return { ...state, config: { ...state.config, ...action.payload } }
     case 'ADD_STORY': {

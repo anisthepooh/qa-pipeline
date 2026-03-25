@@ -10,23 +10,23 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const projectId = req.nextUrl.searchParams.get('projectId')
+    const userId = pb.authStore.model?.id
     const adminPb = await getPbAdmin()
-    const records = await adminPb.collection('runs').getList(1, 200, {
+    const records = await adminPb.collection('projects').getList(1, 200, {
+      filter: `user = "${userId}"`,
       sort: '-created',
-      ...(projectId && { filter: `project = "${projectId}"` }),
     })
     return NextResponse.json(records.items.map(r => ({
       id: r.id,
-      projectId: r.project || undefined,
       name: r.name,
       url: r.url,
-      date: r.date,
-      summary: r.summary,
+      description: r.description || '',
+      created: r.created,
+      updated: r.updated,
     })))
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
-    console.error('[GET /api/runs]', err)
+    console.error('[GET /api/projects]', err)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
@@ -40,25 +40,30 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const data = await req.json()
+    const { name, url, description } = await req.json()
+    if (!name?.trim() || !url?.trim()) {
+      return NextResponse.json({ error: 'name and url are required' }, { status: 400 })
+    }
+
     const userId = pb.authStore.model?.id
     const adminPb = await getPbAdmin()
-
-    const record = await adminPb.collection('runs').create({
+    const record = await adminPb.collection('projects').create({
       user: userId,
-      project: data.projectId || undefined,
-      name: data.run?.name || 'Unnamed run',
-      url: data.run?.url || '',
-      tester: data.run?.tester || '',
-      date: data.run?.date || new Date().toISOString(),
-      summary: data.summary || {},
-      test_cases: data.test_cases || [],
-      findings: data.findings || [],
-      categories: data.categories || [],
+      name: name.trim(),
+      url: url.trim(),
+      description: description?.trim() || '',
     })
-    return NextResponse.json({ id: record.id })
+    return NextResponse.json({
+      id: record.id,
+      name: record.name,
+      url: record.url,
+      description: record.description || '',
+      created: record.created,
+      updated: record.updated,
+    })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[POST /api/projects]', err)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

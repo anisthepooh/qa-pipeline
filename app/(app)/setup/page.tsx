@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { usePipeline } from '@/context/PipelineContext'
+import { usePipeline, Action } from '@/context/PipelineContext'
 import { buildPrompt } from '@/lib/promptBuilder'
 import { DEMO_RUN } from '@/lib/demoData'
 import { Button } from '@/components/ui/button'
@@ -12,11 +12,11 @@ import { Label } from '@/components/ui/label'
 import StoryItem from '@/components/StoryItem'
 import StatCard from '@/components/StatCard'
 import { cn } from '@/lib/utils'
-import { Config, Story, RunResult } from '@/types'
+import { Config, Story, RunResult, Project } from '@/types'
 import {
   Settings, Tag, BookOpen, ClipboardList, Play, Copy, Check,
   Zap, ChevronDown, ChevronUp, AlertCircle, ArrowRight, ArrowLeft,
-  Loader2, X, CheckCircle2, XCircle, MinusCircle,
+  Loader2, X, CheckCircle2, XCircle, MinusCircle, FolderOpen,
 } from 'lucide-react'
 
 const STEPS = [
@@ -68,7 +68,17 @@ function Stepper({ currentStep }: { currentStep: number }) {
   )
 }
 
-function StepConfig({ config, dispatch }: { config: Config; dispatch: React.Dispatch<{ type: 'SET_CONFIG'; payload: Partial<Config> }> }) {
+function StepConfig({
+  config,
+  dispatch,
+  projects,
+  activeProject,
+}: {
+  config: Config
+  dispatch: React.Dispatch<Action>
+  projects: Project[]
+  activeProject: Project | null
+}) {
   const set = (key: keyof Config, val: unknown) => dispatch({ type: 'SET_CONFIG', payload: { [key]: val } as Partial<Config> })
 
   const toggleCategory = (id: string) => {
@@ -78,8 +88,63 @@ function StepConfig({ config, dispatch }: { config: Config; dispatch: React.Disp
     set('categories', cats)
   }
 
+  const selectProject = (projectId: string) => {
+    const project = projects.find(p => p.id === projectId) || null
+    dispatch({ type: 'SET_ACTIVE_PROJECT', payload: project })
+  }
+
   return (
     <div className="space-y-5">
+      {/* Project selector */}
+      <div className="bg-white border border-gray-200 rounded-lg">
+        <div className="px-5 py-4 border-b border-gray-200 flex items-center gap-3">
+          <div className="w-7 h-7 rounded-md bg-gray-100 text-gray-500 flex items-center justify-center flex-shrink-0">
+            <FolderOpen className="w-3.5 h-3.5" />
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-gray-900">Project</div>
+            <div className="text-xs text-gray-500">Link this run to a project (optional)</div>
+          </div>
+        </div>
+        <div className="px-5 py-5">
+          {projects.length === 0 ? (
+            <p className="text-xs text-gray-400">
+              No projects yet.{' '}
+              <a href="/projects" className="underline hover:text-gray-600 transition-colors">Create one</a>
+              {' '}to organise your runs.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => dispatch({ type: 'SET_ACTIVE_PROJECT', payload: null })}
+                className={`px-3 py-1.5 rounded-md border text-xs font-medium transition-all ${
+                  !activeProject
+                    ? 'border-gray-900 bg-gray-900 text-white'
+                    : 'border-gray-200 text-gray-500 hover:border-gray-400 hover:text-gray-700'
+                }`}
+              >
+                No project
+              </button>
+              {projects.map(p => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => selectProject(p.id)}
+                  className={`px-3 py-1.5 rounded-md border text-xs font-medium transition-all ${
+                    activeProject?.id === p.id
+                      ? 'border-gray-900 bg-gray-900 text-white'
+                      : 'border-gray-200 text-gray-500 hover:border-gray-400 hover:text-gray-700'
+                  }`}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="bg-white border border-gray-200 rounded-lg">
         <div className="px-5 py-4 border-b border-gray-200 flex items-center gap-3">
           <div className="w-7 h-7 rounded-md bg-gray-100 text-gray-500 flex items-center justify-center flex-shrink-0">
@@ -482,8 +547,17 @@ function StepRun({ config, stories, dispatch, router }: {
 export default function SetupPage() {
   const [step, setStep] = useState(0)
   const { state, dispatch } = usePipeline()
-  const { config, stories } = state
+  const { config, stories, projects, activeProject } = state
   const router = useRouter()
+
+  useEffect(() => {
+    if (projects.length === 0) {
+      fetch('/api/projects')
+        .then(r => r.json())
+        .then(data => { if (Array.isArray(data)) dispatch({ type: 'SET_PROJECTS', payload: data }) })
+        .catch(() => {})
+    }
+  }, [projects.length, dispatch])
 
   const canAdvance = [
     true,
@@ -496,7 +570,7 @@ export default function SetupPage() {
       <Stepper currentStep={step} />
 
       <div className="p-7 max-w-2xl space-y-5">
-        {step === 0 && <StepConfig config={config} dispatch={dispatch} />}
+        {step === 0 && <StepConfig config={config} dispatch={dispatch} projects={projects} activeProject={activeProject} />}
         {step === 1 && <StepStories stories={stories} dispatch={dispatch as AnyDispatch} />}
         {step === 2 && <StepRun config={config} stories={stories} dispatch={dispatch as AnyDispatch} router={router} />}
 

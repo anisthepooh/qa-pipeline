@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { config, stories, geminiApiKey } = await req.json()
+  const { config, stories, geminiApiKey, projectId } = await req.json()
 
   if (!config?.url || !stories?.length) {
     return NextResponse.json({ error: 'config.url and stories are required' }, { status: 400 })
@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
           const adminPb = await getPbAdmin()
           const record = await adminPb.collection('runs').create({
             user: userId,
+            project: projectId || config.projectId || undefined,
             name: result.run.name,
             url: result.run.url,
             tester: result.run.tester,

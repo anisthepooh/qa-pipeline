@@ -21,6 +21,7 @@ export async function GET(req: NextRequest) {
       name: r.name,
       url: r.url,
       description: r.description || '',
+      color: r.color ?? 0,
       created: r.created,
       updated: r.updated,
     })))
@@ -58,6 +59,7 @@ export async function POST(req: NextRequest) {
       name: record.name,
       url: record.url,
       description: record.description || '',
+      color: record.color ?? 0,
       created: record.created,
       updated: record.updated,
     })

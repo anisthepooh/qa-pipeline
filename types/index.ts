@@ -3,6 +3,7 @@ export interface Project {
   name: string
   url: string
   description?: string
+  color?: number
   created: string
   updated: string
 }

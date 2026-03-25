@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label'
 import StoryItem from '@/components/StoryItem'
 import StatCard from '@/components/StatCard'
 import { cn } from '@/lib/utils'
+import { Switch } from '@/components/ui/switch'
 import { Config, Story, RunResult, Project } from '@/types'
 import {
   Settings, Tag, BookOpen, ClipboardList, Play, Copy, Check,
@@ -189,11 +190,11 @@ function StepConfig({
               const checked = config.categories.includes(cat.id)
               return (
                 <label key={cat.id} className={cn(
-                  'flex items-center gap-2.5 px-3 py-2.5 rounded-md border cursor-pointer text-sm font-medium transition-all duration-150',
+                  'flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-md border cursor-pointer text-sm font-medium transition-all duration-150',
                   checked ? 'border-gray-900 bg-gray-50 text-gray-900' : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700'
                 )}>
-                  <input type="checkbox" className="rounded" checked={checked} onChange={() => toggleCategory(cat.id)} />
                   {cat.label}
+                  <Switch checked={checked} onCheckedChange={() => toggleCategory(cat.id)} />
                 </label>
               )
             })}

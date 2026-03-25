@@ -8,8 +8,43 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Project } from '@/types'
-import { FolderOpen, Plus, ArrowRight, Loader2, X } from 'lucide-react'
-import { formatDate } from '@/lib/utils'
+import { FolderOpen, Plus, ArrowRight, Loader2, X, Globe } from 'lucide-react'
+import { cn, formatDate } from '@/lib/utils'
+
+const PROJECT_COLORS = [
+  'bg-linear-to-br from-green-100 to-green-300',
+  'bg-linear-to-br from-blue-100 to-blue-300',
+  'bg-linear-to-br from-violet-100 to-violet-300',
+  'bg-linear-to-br from-rose-100 to-rose-300',
+  'bg-linear-to-br from-amber-100 to-amber-300',
+  'bg-linear-to-br from-emerald-100 to-emerald-300',
+] 
+
+function ProjectScreenshot({ url, color }: { url: string; color?: number }) {
+  const [errored, setErrored] = useState(false)
+  const thumbUrl = `https://s.wordpress.com/mshots/v1/${encodeURIComponent(url)}?w=800&h=500`
+  const bg = PROJECT_COLORS[color ?? 0] ?? PROJECT_COLORS[0]
+
+  return (
+    <div className="w-full h-36 overflow-hidden relative flex-shrink-0">
+      <div className={cn("pt-3 px-3 w-full h-full", bg)}>
+        {!errored ? (
+          <img
+            src={thumbUrl}
+            alt=""
+            className="w-full h-full object-cover object-top rounded-t-md "
+            onError={() => setErrored(true)}
+          />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-gray-400">
+            <Globe className="w-6 h-6" />
+            <span className="text-[11px]">No preview</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 export default function ProjectsPage() {
   const { state, dispatch } = usePipeline()
@@ -67,7 +102,7 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="p-7 max-w-3xl fade-in">
+    <div className="p-7 max-w-5xl fade-in">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Projects</h1>
@@ -142,22 +177,21 @@ export default function ProjectsPage() {
           )}
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {projects.map(project => (
             <button
               key={project.id}
-              className="w-full text-left bg-white border border-gray-200 rounded-lg px-5 py-4 hover:border-gray-300 hover:shadow-sm transition-all group"
+              className="text-left bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-gray-300 hover:shadow-md transition-all group flex flex-col"
               onClick={() => router.push(`/projects/${project.id}`)}
             >
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-gray-900 truncate">{project.name}</div>
-                  <div className="text-xs font-mono text-gray-400 mt-0.5 truncate">{project.url}</div>
-                  {project.description && (
-                    <div className="text-xs text-gray-500 mt-1.5 line-clamp-2">{project.description}</div>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
+              <ProjectScreenshot url={project.url} color={project.color} />
+              <div className="px-4 py-3 flex-1 flex flex-col gap-1">
+                <div className="text-sm font-semibold text-gray-900 truncate">{project.name}</div>
+                <div className="text-xs font-mono text-gray-400 truncate">{project.url}</div>
+                {project.description && (
+                  <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">{project.description}</div>
+                )}
+                <div className="flex items-center justify-between mt-auto pt-2">
                   <span className="text-[11px] text-gray-400">{formatDate(project.created)}</span>
                   <ArrowRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-500 transition-colors" />
                 </div>

@@ -41,13 +41,15 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { name, url, description } = await req.json()
+    const bodyPromise = req.json()
+    const adminPbPromise = getPbAdmin()
+    const { name, url, description } = await bodyPromise
     if (!name?.trim() || !url?.trim()) {
       return NextResponse.json({ error: 'name and url are required' }, { status: 400 })
     }
 
     const userId = pb.authStore.model?.id
-    const adminPb = await getPbAdmin()
+    const adminPb = await adminPbPromise
     const record = await adminPb.collection('projects').create({
       user: userId,
       name: name.trim(),

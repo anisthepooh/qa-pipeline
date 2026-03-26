@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getPbFromCookie, getPbAdmin } from '@/lib/pocketbase'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
   const cookie = req.headers.get('cookie') || ''
   const pb = getPbFromCookie(cookie)
 
@@ -11,12 +10,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   try {
-    const adminPb = await getPbAdmin()
-    const project = await adminPb.collection('projects').getOne(id)
-    const runs = await adminPb.collection('runs').getList(1, 200, {
-      filter: `project = "${id}"`,
-      sort: '-created',
-    })
+    const [{ id }, adminPb] = await Promise.all([params, getPbAdmin()])
+    const [project, runs] = await Promise.all([
+      adminPb.collection('projects').getOne(id),
+      adminPb.collection('runs').getList(1, 200, {
+        filter: `project = "${id}"`,
+        sort: '-created',
+      }),
+    ])
     return NextResponse.json({
       id: project.id,
       name: project.name,
@@ -41,7 +42,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
   const cookie = req.headers.get('cookie') || ''
   const pb = getPbFromCookie(cookie)
 
@@ -50,7 +50,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   try {
-    const { name, url, description } = await req.json()
+    const [{ id }, { name, url, description }] = await Promise.all([params, req.json()])
     const adminPb = await getPbAdmin()
     const record = await adminPb.collection('projects').update(id, {
       ...(name !== undefined && { name: name.trim() }),
@@ -73,7 +73,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
   const cookie = req.headers.get('cookie') || ''
   const pb = getPbFromCookie(cookie)
 
@@ -82,7 +81,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
 
   try {
-    const adminPb = await getPbAdmin()
+    const [{ id }, adminPb] = await Promise.all([params, getPbAdmin()])
     await adminPb.collection('projects').delete(id)
     return NextResponse.json({ deleted: true })
   } catch (err: unknown) {

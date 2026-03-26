@@ -34,7 +34,7 @@ function buildMicrolinkUrl(url: string) {
 export function ProjectScreenshot({ url, color }: { url: string; color?: number }) {
   const [status, setStatus] = useState<Status>('loading')
   const thumbUrl = buildMicrolinkUrl(url)
-  const bg = PROJECT_COLORS[color ?? 0] ?? PROJECT_COLORS[0]
+  const bg = PROJECT_COLORS[(color ?? 0) % PROJECT_COLORS.length]
 
   return (
     <div className="w-full h-36 overflow-hidden relative flex-shrink-0">

@@ -41,8 +41,7 @@ export function ProjectForm({ onSuccess, onCancel }: ProjectFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-lg p-5 mb-5 space-y-4">
-      <div className="text-sm font-semibold text-gray-900 mb-1">New project</div>
+    <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1.5">
           <Label htmlFor="proj-name">Project name</Label>
@@ -79,13 +78,13 @@ export function ProjectForm({ onSuccess, onCancel }: ProjectFormProps) {
         />
       </div>
       {error && <p className="text-xs text-red-500">{error}</p>}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
         <Button type="submit" size="sm" disabled={submitting}>
           {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
           Create project
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-          Cancel
         </Button>
       </div>
     </form>

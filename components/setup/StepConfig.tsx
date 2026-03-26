@@ -1,13 +1,17 @@
 'use client'
 
-import { Settings, Tag, FolderOpen } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Settings, Tag, FolderOpen, KeyRound } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
-import { Config, Project } from '@/types'
+import { Config, Project, UserCredential } from '@/types'
 import { Action } from '@/context/PipelineContext'
 import { CATEGORIES } from '../../app/constants/constants'
+import { CredentialsForm } from '@/components/projects/CredentialsForm'
 
 interface Props {
   config: Config
@@ -17,6 +21,19 @@ interface Props {
 }
 
 export default function StepConfig({ config, dispatch, projects, activeProject }: Props) {
+  const [credential, setCredential] = useState<UserCredential | null>(null)
+  const [credentialLoading, setCredentialLoading] = useState(false)
+  const [showCredentialsForm, setShowCredentialsForm] = useState(false)
+
+  useEffect(() => {
+    if (!activeProject) { setCredential(null); return }
+    setCredentialLoading(true)
+    fetch(`/api/projects/${activeProject.id}/credentials`)
+      .then(r => r.json())
+      .then(data => { setCredential(data); setCredentialLoading(false) })
+      .catch(() => setCredentialLoading(false))
+  }, [activeProject?.id])
+
   const set = (key: keyof Config, val: unknown) =>
     dispatch({ type: 'SET_CONFIG', payload: { [key]: val } as Partial<Config> })
 
@@ -100,6 +117,46 @@ export default function StepConfig({ config, dispatch, projects, activeProject }
           </div>
         </div>
       </div>
+
+      {/* Test credentials */}
+      <div className="bg-white border border-gray-200 rounded-lg">
+        <SectionHeader icon={<KeyRound className="w-3.5 h-3.5" />} title="Test credentials" description="Playwright will use these to log in before running stories" />
+        <div className="px-5 py-4">
+          {!activeProject ? (
+            <p className="text-xs text-gray-400">Select a project above to use saved credentials.</p>
+          ) : credentialLoading ? (
+            <p className="text-xs text-gray-400">Loading…</p>
+          ) : credential ? (
+            <div className="flex items-center justify-between gap-4">
+              <div className="text-xs text-gray-600 font-mono space-y-0.5 min-w-0">
+                <div className="truncate">{credential.email || credential.username}</div>
+                <div className="text-gray-400">{'•'.repeat(8)}</div>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setShowCredentialsForm(true)}>Edit</Button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-400">No credentials set — Playwright will not log in.</p>
+              <Button variant="outline" size="sm" onClick={() => setShowCredentialsForm(true)}>Add</Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <Dialog open={showCredentialsForm} onOpenChange={setShowCredentialsForm}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Test credentials</DialogTitle>
+          </DialogHeader>
+          {activeProject && (
+            <CredentialsForm
+              projectId={activeProject.id}
+              onSuccess={cred => { setCredential(cred); setShowCredentialsForm(false) }}
+              onCancel={() => setShowCredentialsForm(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Test categories */}
       <div className="bg-white border border-gray-200 rounded-lg">

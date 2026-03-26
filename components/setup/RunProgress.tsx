@@ -20,7 +20,9 @@ export default function RunProgress({ progress, onCancel }: Props) {
             </span>
             <span className="text-sm text-gray-700 flex-1">{p.tcId} — {p.title}</span>
             {p.status === 'running' && (
-              <span className="text-[11px] text-gray-400">Analysing…</span>
+              <span className="text-[11px] text-gray-400 truncate max-w-[200px]" title={p.currentStep}>
+                {p.currentStep || 'Thinking…'}
+              </span>
             )}
             {(p.status === 'PASS' || p.status === 'FAIL' || p.status === 'PARTIAL') && (
               <span className="text-[11px] text-gray-400">

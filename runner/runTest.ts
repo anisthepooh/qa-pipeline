@@ -2,35 +2,59 @@ import { chromium } from 'playwright'
 import { GoogleGenAI } from '@google/genai'
 import { Config, Story, TestCase, Finding } from '@/types'
 
+const MAX_STEPS = 15
 
-interface Step {
-  type: 'navigate' | 'click' | 'fill'
-  target?: string
-  text?: string
-  value?: string
-  field?: string
-  raw: string
+const CATEGORY_MAP: Record<string, string> = {
+  flow: 'user_flow_validity',
+  deadend: 'dead_ends',
+  bugs: 'bugs_and_failures',
+  ux: 'ux_best_practices',
+  design: 'design_cohesion',
+  a11y: 'accessibility',
 }
 
-function parseSteps(body: string): Step[] {
-  if (!body) return []
-  const steps: Step[] = []
-  for (const raw of body.split('\n')) {
-    const line = raw.replace(/^\s*\d+[\.\)]\s*/, '').trim()
-    if (!line) continue
+interface AgentAction {
+  action: 'navigate' | 'click' | 'fill' | 'done'
+  url?: string
+  selector?: string
+  value?: string
+  reason?: string
+  // returned with action === 'done'
+  status?: string
+  actual_outcome?: string
+  findings?: Omit<Finding, 'id' | 'tc_id' | 'screenshot_base64'>[]
+}
 
-    if (/^navigate to\s+(\S+)/i.test(line)) {
-      steps.push({ type: 'navigate', target: line.match(/^navigate to\s+(\S+)/i)![1], raw: line })
-    } else if (/^click\s+['"](.+?)['"]/i.test(line)) {
-      steps.push({ type: 'click', text: line.match(/^click\s+['"](.+?)['"]/i)![1], raw: line })
-    } else if (/^click\s+(.+)/i.test(line)) {
-      steps.push({ type: 'click', text: line.match(/^click\s+(.+)/i)![1].replace(/button|link|on\s+/gi, '').trim(), raw: line })
-    } else if (/^(enter|type|fill)\s+['"]?(.+?)['"]?\s+(in|into|on)\s+/i.test(line)) {
-      const m = line.match(/^(?:enter|type|fill)\s+['"]?(.+?)['"]?\s+(?:in|into|on)\s+(.+)/i)
-      if (m) steps.push({ type: 'fill', value: m[1], field: m[2], raw: line })
+async function getDomContext(page: import('playwright').Page): Promise<Record<string, unknown>> {
+  return page.evaluate(() => {
+    const inputs = Array.from(document.querySelectorAll('input:not([type=hidden])')).slice(0, 20).map(el => {
+      const e = el as HTMLInputElement
+      return {
+        type: e.type,
+        name: e.name || undefined,
+        id: e.id || undefined,
+        placeholder: e.placeholder || undefined,
+        ariaLabel: e.getAttribute('aria-label') || undefined,
+        filled: e.type === 'password' ? (e.value.length > 0 ? 'yes' : 'no') : (e.value ? 'yes' : 'no'),
+      }
+    })
+    const buttons = Array.from(document.querySelectorAll('button, input[type=submit]')).slice(0, 10).map(el => ({
+      text: (el as HTMLElement).innerText?.trim().slice(0, 60) || (el as HTMLInputElement).value,
+      type: (el as HTMLButtonElement).type,
+      disabled: (el as HTMLButtonElement).disabled,
+    }))
+    const links = Array.from(document.querySelectorAll('a[href]')).slice(0, 15).map(el => ({
+      text: (el as HTMLAnchorElement).innerText?.trim().slice(0, 60),
+      href: (el as HTMLAnchorElement).href,
+    }))
+    return {
+      url: window.location.href,
+      title: document.title,
+      inputs,
+      buttons,
+      links,
     }
-  }
-  return steps
+  }).catch(() => ({ url: '', title: '', inputs: [], buttons: [], links: [] }))
 }
 
 async function runTestCase(
@@ -38,11 +62,13 @@ async function runTestCase(
   tcId: string,
   story: Story,
   config: Config,
-  ai: GoogleGenAI
+  ai: GoogleGenAI,
+  onStep: (reason: string) => void
 ): Promise<{ tc: TestCase; findings: Omit<Finding, 'id'>[] }> {
   const consoleErrors: string[] = []
   const networkErrors: string[] = []
   const screenshots: { label: string; data: string }[] = []
+  const actionHistory: string[] = []
 
   page.on('console', msg => {
     if (msg.type() === 'error') consoleErrors.push(msg.text())
@@ -51,90 +77,51 @@ async function runTestCase(
     if (res.status() >= 400) networkErrors.push(`${res.status()} ${res.url()}`)
   })
 
+  const categories = (config.categories || []).map(c => CATEGORY_MAP[c] || c).join(', ')
+
+  const snap = async (label: string) => {
+    const buf = await page.screenshot({ fullPage: false })
+    const data = buf.toString('base64')
+    screenshots.push({ label, data })
+    return data
+  }
+
   console.log(`[${tcId}] Navigating to ${config.url}`)
   await page.goto(config.url, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.waitForTimeout(500)
 
-  const snap = async (label: string) => {
-    const buf = await page.screenshot({ fullPage: false })
-    screenshots.push({ label, data: buf.toString('base64') })
-  }
+  for (let step = 0; step < MAX_STEPS; step++) {
+    const screenshotData = await snap(`Step ${step + 1}`)
+    const dom = await getDomContext(page)
 
-  await snap('Initial page load')
+    const stepPrompt = `You are a QA engineer controlling a browser via Playwright to test a user story.
 
-  const steps = parseSteps(story.body)
-  for (const step of steps) {
-    try {
-      if (step.type === 'navigate' && step.target) {
-        const url = /^https?:\/\//i.test(step.target)
-          ? step.target
-          : config.url.replace(/\/+$/, '') + (step.target.startsWith('/') ? '' : '/') + step.target
-        console.log(`[${tcId}] Navigate to ${url}`)
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 })
-        await page.waitForTimeout(400)
-        await snap(`After: ${step.raw}`)
-      } else if (step.type === 'click' && step.text) {
-        await page.getByText(step.text, { exact: false }).first().click({ timeout: 5000 })
-        await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
-        await snap(`After: ${step.raw}`)
-      } else if (step.type === 'fill' && step.value) {
-        const input = page.locator('input').first()
-        await input.fill(step.value, { timeout: 5000 })
-      }
-    } catch {
-      // Step failed silently — continue
-    }
-  }
-
-  const finalBuf = await page.screenshot({ fullPage: true })
-  screenshots.push({ label: 'Final state', data: finalBuf.toString('base64') })
-
-  const dom = await page.evaluate(() => ({
-    title: document.title,
-    lang: document.documentElement.lang,
-    url: window.location.href,
-    h1Count: document.querySelectorAll('h1').length,
-    h2Count: document.querySelectorAll('h2').length,
-    imagesWithoutAlt: document.querySelectorAll('img:not([alt])').length,
-    inputsWithoutLabel: Array.from(document.querySelectorAll('input:not([type=hidden])')).filter(el => {
-      const input = el as HTMLInputElement
-      return !input.getAttribute('aria-label') && !input.getAttribute('aria-labelledby') &&
-             !(input.id && document.querySelector(`label[for="${input.id}"]`))
-    }).length,
-    hasMain: !!document.querySelector('main'),
-    viewportMeta: document.querySelector('meta[name=viewport]')?.getAttribute('content') || '',
-    linkCount: document.querySelectorAll('a[href]').length,
-  })).catch(() => ({}))
-
-  const relevantShots = screenshots.length <= 3
-    ? screenshots
-    : [screenshots[0], screenshots[Math.floor(screenshots.length / 2)], screenshots[screenshots.length - 1]]
-
-  const categoryMap: Record<string, string> = {
-    flow: 'user_flow_validity',
-    deadend: 'dead_ends',
-    bugs: 'bugs_and_failures',
-    ux: 'ux_best_practices',
-    design: 'design_cohesion',
-    a11y: 'accessibility',
-  }
-  const categories = (config.categories || []).map(c => categoryMap[c] || c).join(', ')
-
-  const prompt = `You are a QA engineer running an automated frontend test.
-
-Test case: ${tcId} — ${story.title}
-Story:
+Story: ${tcId} — ${story.title}
+Goal:
 ${story.body}
 
-Target URL: ${config.url}
-DOM snapshot: ${JSON.stringify(dom, null, 2)}
-Console errors: ${consoleErrors.length ? consoleErrors.slice(0, 10).join('\n') : 'none'}
-Network errors: ${networkErrors.length ? networkErrors.slice(0, 10).join('\n') : 'none'}
+Current state:
+  URL: ${dom.url}
+  Title: ${dom.title}
+  Inputs: ${JSON.stringify(dom.inputs)}
+  Buttons: ${JSON.stringify(dom.buttons)}
+  Links: ${JSON.stringify(dom.links)}
+  Console errors: ${consoleErrors.slice(-5).join(' | ') || 'none'}
+  Network errors (4xx/5xx): ${networkErrors.slice(-5).join(' | ') || 'none'}
+
+Actions taken so far: ${actionHistory.length ? actionHistory.join(' → ') : 'none'}
 Categories to evaluate: ${categories}
 
-The screenshots above show the app state during this test. Analyse thoroughly and return ONLY valid JSON with no prose, no markdown fences:
+Decide the NEXT single action. Return ONLY valid JSON with no prose or markdown:
 {
-  "status": "PASS",
+  "action": "navigate" | "click" | "fill" | "done",
+  "url": "absolute URL (navigate only)",
+  "selector": "CSS selector — prefer #id, [name=x], [type=x], or button:has-text(\"Label\") for buttons",
+  "value": "text to type (fill only)",
+  "reason": "one line explaining why",
+
+  // Include only when action === "done":
+  "status": "PASS" | "FAIL" | "PARTIAL",
   "actual_outcome": "concise description of what was observed",
   "findings": [
     {
@@ -143,53 +130,114 @@ The screenshots above show the app state during this test. Analyse thoroughly an
       "category": "bugs_and_failures|accessibility|ux_best_practices|design_cohesion|dead_ends|user_flow_validity",
       "description": "2-3 factual sentences",
       "location": "url path or element",
-      "evidence": "what was observed in DOM or screenshot",
+      "evidence": "what was observed",
       "expected": "what should happen",
       "actual": "what does happen"
     }
   ]
 }
 
-status must be PASS, FAIL, or PARTIAL.`
+Use "done" when the story goal is fully achieved OR when you have enough evidence to evaluate it (success or failure).`
 
-  const parts: { inlineData?: { mimeType: string; data: string }; text?: string }[] = []
-  for (const ss of relevantShots) {
-    parts.push({ inlineData: { mimeType: 'image/png', data: ss.data } })
-    parts.push({ text: `[Screenshot: ${ss.label}]` })
+    const geminiResult = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [{
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType: 'image/png', data: screenshotData } },
+          { text: stepPrompt },
+        ],
+      }],
+    })
+
+    const rawText = (geminiResult.text ?? '').trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '')
+    let parsed: AgentAction = { action: 'done', status: 'PARTIAL', actual_outcome: 'Could not parse AI response', findings: [] }
+    try {
+      parsed = JSON.parse(rawText)
+    } catch {
+      // keep fallback
+    }
+
+    console.log(`[${tcId}] step=${step + 1} action=${parsed.action} reason=${parsed.reason}`)
+    if (parsed.action === 'done') {
+      console.log(`[${tcId}] done → status=${parsed.status} outcome=${parsed.actual_outcome}`)
+      if (parsed.findings?.length) {
+        for (const f of parsed.findings) console.log(`[${tcId}]   finding: [${f.severity}] ${f.title} — ${f.description}`)
+      }
+    }
+    onStep(parsed.reason || parsed.action)
+
+    if (parsed.action === 'done') {
+      const lastScreenshot = screenshots[screenshots.length - 1]?.data || ''
+      return {
+        tc: {
+          id: tcId,
+          title: story.title,
+          status: (parsed.status as TestCase['status']) || 'PARTIAL',
+          steps_executed: step + 1,
+          actual_outcome: parsed.actual_outcome || '',
+          screenshot_base64: lastScreenshot,
+        },
+        findings: (parsed.findings || []).map(f => ({
+          tc_id: tcId,
+          screenshot_base64: lastScreenshot,
+          ...f,
+        })) as Omit<Finding, 'id'>[],
+      }
+    }
+
+    // Execute the action
+    actionHistory.push(`${parsed.action}${parsed.selector ? `(${parsed.selector})` : ''}${parsed.value ? `="${parsed.value}"` : ''}`)
+    try {
+      if (parsed.action === 'navigate' && parsed.url) {
+        await page.goto(parsed.url, { waitUntil: 'domcontentloaded', timeout: 15000 })
+        await page.waitForTimeout(400)
+      } else if (parsed.action === 'click' && parsed.selector) {
+        const sel = parsed.selector
+        // Extract text from Playwright has-text() patterns like button:has-text("Login")
+        const hasTextMatch = sel.match(/has-text\(['"](.+?)['"]\)/i)
+        const labelText = hasTextMatch?.[1] ?? null
+
+        const clicked = await page.locator(sel).first().click({ timeout: 4000 })
+          .then(() => true)
+          .catch(() => false)
+
+        if (!clicked) {
+          if (labelText) {
+            await page.getByRole('button', { name: labelText, exact: false }).first().click({ timeout: 3000 })
+              .catch(() => page.getByRole('link', { name: labelText, exact: false }).first().click({ timeout: 3000 }))
+              .catch(() => page.getByText(labelText, { exact: false }).first().click({ timeout: 3000 }))
+          } else {
+            await page.getByText(sel, { exact: false }).first().click({ timeout: 3000 })
+          }
+        }
+        await page.waitForLoadState('networkidle', { timeout: 6000 }).catch(() => {})
+        await page.waitForTimeout(300)
+      } else if (parsed.action === 'fill' && parsed.selector) {
+        const el = page.locator(parsed.selector).first()
+        await el.click({ timeout: 5000 })
+        await el.fill('', { timeout: 5000 })
+        await el.pressSequentially(parsed.value || '', { delay: 30 })
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      actionHistory[actionHistory.length - 1] += ` [failed: ${msg.slice(0, 60)}]`
+      console.log(`[${tcId}] action failed: ${msg}`)
+    }
   }
-  parts.push({ text: prompt })
 
-  console.log(`[${tcId}] Sending ${relevantShots.length} screenshots to Gemini…`)
-  const geminiResult = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: [{ role: 'user', parts }],
-  })
-  console.log(`[${tcId}] Gemini response received`)
-  const rawText = (geminiResult.text ?? '').trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '')
-
-  let result: { status?: string; actual_outcome?: string; findings?: Omit<Finding, 'id' | 'tc_id' | 'screenshot_base64'>[] } = {
-    status: 'PARTIAL', actual_outcome: 'Analysis complete', findings: [],
-  }
-  try {
-    result = JSON.parse(rawText)
-  } catch {
-    // Keep defaults
-  }
-
+  // Max steps reached — report what we observed
+  const lastScreenshot = screenshots[screenshots.length - 1]?.data || ''
   return {
     tc: {
       id: tcId,
       title: story.title,
-      status: (result.status as TestCase['status']) || 'PARTIAL',
-      steps_executed: steps.length,
-      actual_outcome: result.actual_outcome || '',
-      screenshot_base64: screenshots[screenshots.length - 1]?.data || '',
+      status: 'PARTIAL',
+      steps_executed: MAX_STEPS,
+      actual_outcome: `Reached ${MAX_STEPS}-step limit. Actions: ${actionHistory.join(' → ')}`,
+      screenshot_base64: lastScreenshot,
     },
-    findings: (result.findings || []).map(f => ({
-      tc_id: tcId,
-      screenshot_base64: screenshots[screenshots.length - 1]?.data || '',
-      ...f,
-    })) as Omit<Finding, 'id'>[],
+    findings: [],
   }
 }
 
@@ -201,14 +249,10 @@ export async function runAllTests(
 ) {
   const ai = new GoogleGenAI({ apiKey })
   console.log(`[runAllTests] Launching browser for ${stories.length} stories`)
+
   const browser = await chromium.launch({
     headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-dev-shm-usage',
-      '--ignore-certificate-errors',
-      '--ignore-ssl-errors',
-    ],
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--ignore-certificate-errors', '--ignore-ssl-errors'],
   })
   const context = await browser.newContext({
     ignoreHTTPSErrors: true,
@@ -227,7 +271,12 @@ export async function runAllTests(
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Test case timed out after 120s')), 120000)
       )
-      const { tc, findings } = await Promise.race([runTestCase(page, tcId, story, config, ai), timeout])
+      const { tc, findings } = await Promise.race([
+        runTestCase(page, tcId, story, config, ai, (reason) => {
+          onProgress({ type: 'step', tcId, reason })
+        }),
+        timeout,
+      ])
 
       const numbered: Finding[] = findings.map((f, j) => ({
         id: `F-${String(allFindings.length + j + 1).padStart(2, '0')}`,
@@ -236,7 +285,6 @@ export async function runAllTests(
 
       allTcs.push(tc)
       allFindings.push(...numbered)
-
       onProgress({ type: 'test_done', tcId, status: tc.status, findingsCount: findings.length })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)

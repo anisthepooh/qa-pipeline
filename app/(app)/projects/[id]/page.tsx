@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { usePipeline } from '@/context/PipelineContext'
 import { Button } from '@/components/ui/button'
-import { RunMeta, Project } from '@/types'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { RunMeta, Project, UserCredential } from '@/types'
 import { formatDate } from '@/lib/utils'
-import { ArrowLeft, Play, Trash2, ExternalLink, History } from 'lucide-react'
+import { ArrowLeft, Play, Trash2, ExternalLink, History, KeyRound } from 'lucide-react'
+import { CredentialsForm } from '@/components/projects/CredentialsForm'
 
 interface ProjectWithRuns extends Project {
   runs: RunMeta[]
@@ -20,6 +22,9 @@ export default function ProjectDetailPage() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [deletingRunId, setDeletingRunId] = useState<string | null>(null)
+  const [credential, setCredential] = useState<UserCredential | null>(null)
+  const [credentialLoading, setCredentialLoading] = useState(true)
+  const [showCredentialsForm, setShowCredentialsForm] = useState(false)
 
   useEffect(() => {
     fetch(`/api/projects/${id}`)
@@ -32,6 +37,14 @@ export default function ProjectDetailPage() {
         setLoading(false)
       })
       .catch(() => setLoading(false))
+  }, [id])
+
+  useEffect(() => {
+    if (!id) return
+    fetch(`/api/projects/${id}/credentials`)
+      .then(r => r.json())
+      .then(data => { setCredential(data); setCredentialLoading(false) })
+      .catch(() => setCredentialLoading(false))
   }, [id])
 
   const startNewRun = () => {
@@ -118,6 +131,43 @@ export default function ProjectDetailPage() {
           </Button>
         </div>
       </div>
+
+      {/* Test credentials */}
+      <div className="bg-white border border-gray-200 rounded-lg px-5 py-4 mb-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-md bg-gray-100 text-gray-500 flex items-center justify-center flex-shrink-0">
+              <KeyRound className="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-gray-900">Test credentials</div>
+              <div className="text-xs text-gray-500">
+                {credentialLoading
+                  ? 'Loading…'
+                  : credential
+                    ? `${credential.email || credential.username || 'Configured'} · password set`
+                    : 'No credentials set — Playwright will not log in'}
+              </div>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setShowCredentialsForm(true)}>
+            {credential ? 'Edit' : 'Add'}
+          </Button>
+        </div>
+      </div>
+
+      <Dialog open={showCredentialsForm} onOpenChange={setShowCredentialsForm}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Test credentials</DialogTitle>
+          </DialogHeader>
+          <CredentialsForm
+            projectId={id}
+            onSuccess={cred => { setCredential(cred); setShowCredentialsForm(false) }}
+            onCancel={() => setShowCredentialsForm(false)}
+          />
+        </DialogContent>
+      </Dialog>
 
       {/* Runs list */}
       <div className="flex items-center justify-between mb-3">

@@ -77,7 +77,7 @@ export default function ProjectsPage() {
               onClick={() => router.push(`/projects/${project.id}`)}
             />
           ))}
-          <button onClick={() => setShowForm(true)} className="flex items-center justify-center text-left bg-muted border border-dashed border-gray-200 rounded-xl overflow-hidden hover:border-gray-300 hover:shadow-md transition-all group flex flex-col min-size-40">
+          <button onClick={() => setShowForm(true)} className="flex items-center min-h-[200px] justify-center text-left bg-muted border border-dashed border-gray-200 rounded-xl overflow-hidden hover:border-gray-300 hover:shadow-md transition-all group flex flex-col min-size-40">
             <PlusCircle size={40} className='text-muted-foreground' />
             Tilføj project
           </button>

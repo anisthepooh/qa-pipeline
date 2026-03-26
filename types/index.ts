@@ -8,6 +8,16 @@ export interface Project {
   updated: string
 }
 
+export interface UserCredential {
+  id: string
+  project: string
+  username?: string
+  email?: string
+  password?: string
+  created: string
+  updated: string
+}
+
 export interface Config {
   projectId?: string
   url: string

@@ -21,6 +21,7 @@ export interface ProgressItem {
   status: string
   findingsCount?: number
   errorMsg?: string
+  currentStep?: string
 }
 
 export const STATUS_ICON: Record<string, React.ReactNode> = {

@@ -26,7 +26,7 @@ export default function StepRun({ config, stories, dispatch, router }: Props) {
   const [progress, setProgress] = useState<ProgressItem[]>([])
   const [runError, setRunError] = useState('')
   const [showManual, setShowManual] = useState(false)
-  const xhrRef = useRef<AbortController | null>(null)
+const xhrRef = useRef<AbortController | null>(null)
 
   const canRun = Boolean(config.url && stories.length > 0)
 
@@ -79,7 +79,9 @@ export default function StepRun({ config, stories, dispatch, router }: Props) {
             let evt: Record<string, unknown>
             try { evt = JSON.parse(line.slice(6)) } catch { continue }
 
-            if (evt.type === 'test_start') {
+            if (evt.type === 'step') {
+              setProgress(prev => prev.map(p => p.tcId === evt.tcId ? { ...p, currentStep: evt.reason as string } : p))
+            } else if (evt.type === 'test_start') {
               setProgress(prev => prev.map(p => p.tcId === evt.tcId ? { ...p, status: 'running' } : p))
             } else if (evt.type === 'test_done') {
               setProgress(prev => prev.map(p => p.tcId === evt.tcId ? { ...p, status: evt.status as string, findingsCount: evt.findingsCount as number } : p))

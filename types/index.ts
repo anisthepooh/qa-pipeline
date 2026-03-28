@@ -18,6 +18,12 @@ export interface UserCredential {
   updated: string
 }
 
+export interface LoginCredentials {
+  email?: string
+  username?: string
+  password?: string
+}
+
 export interface Config {
   projectId?: string
   url: string

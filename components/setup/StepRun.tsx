@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Play, Zap, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
+import { Play, Zap, AlertCircle, ChevronDown, ChevronUp, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import StatCard from '@/components/StatCard'
 import { buildPrompt } from '@/lib/promptBuilder'
@@ -26,6 +26,12 @@ export default function StepRun({ config, stories, dispatch, router }: Props) {
   const [progress, setProgress] = useState<ProgressItem[]>([])
   const [runError, setRunError] = useState('')
   const [showManual, setShowManual] = useState(false)
+  const [loginPhase, setLoginPhase] = useState<{
+    status: 'idle' | 'running' | 'success' | 'fail'
+    currentStep?: string
+    steps?: number
+    failReason?: string
+  }>({ status: 'idle' })
 const xhrRef = useRef<AbortController | null>(null)
 
   const canRun = Boolean(config.url && stories.length > 0)
@@ -37,6 +43,7 @@ const xhrRef = useRef<AbortController | null>(null)
 
   const startRun = () => {
     setRunStatus('running')
+    setLoginPhase({ status: 'idle' })
     dispatch({ type: 'SET_RUNNING', payload: true })
     setProgress(stories.map((s, i) => ({
       tcId: `TC-${String(i + 1).padStart(2, '00')}`,
@@ -86,7 +93,17 @@ const xhrRef = useRef<AbortController | null>(null)
             let evt: Record<string, unknown>
             try { evt = JSON.parse(line.slice(6)) } catch { continue }
 
-            if (evt.type === 'step') {
+            if (evt.type === 'login_start') {
+              setLoginPhase({ status: 'running' })
+            } else if (evt.type === 'login_step') {
+              setLoginPhase(prev => ({ ...prev, status: 'running', currentStep: evt.reason as string }))
+            } else if (evt.type === 'login_done') {
+              setLoginPhase({
+                status: evt.success ? 'success' : 'fail',
+                steps: evt.steps as number,
+                failReason: evt.failReason as string | undefined,
+              })
+            } else if (evt.type === 'step') {
               setProgress(prev => prev.map(p => p.tcId === evt.tcId ? { ...p, currentStep: evt.reason as string } : p))
             } else if (evt.type === 'test_start') {
               setProgress(prev => prev.map(p => p.tcId === evt.tcId ? { ...p, status: 'running' } : p))
@@ -173,7 +190,25 @@ const xhrRef = useRef<AbortController | null>(null)
           )}
 
           {runStatus === 'running' && (
-            <RunProgress progress={progress} onCancel={cancelRun} />
+            <div className="space-y-3">
+              {loginPhase.status !== 'idle' && (
+                <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-md border bg-gray-50 border-gray-200">
+                  {loginPhase.status === 'running'
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400 flex-shrink-0" />
+                    : loginPhase.status === 'success'
+                    ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                    : <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />}
+                  <span className="text-gray-600">
+                    {loginPhase.status === 'running'
+                      ? `Logging in…${loginPhase.currentStep ? ` (${loginPhase.currentStep})` : ''}`
+                      : loginPhase.status === 'success'
+                      ? `Logged in (${loginPhase.steps} step${loginPhase.steps !== 1 ? 's' : ''})`
+                      : `Login failed: ${loginPhase.failReason} — tests will continue`}
+                  </span>
+                </div>
+              )}
+              <RunProgress progress={progress} onCancel={cancelRun} />
+            </div>
           )}
 
           {runStatus === 'error' && (

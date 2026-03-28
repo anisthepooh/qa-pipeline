@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Settings, Tag, FolderOpen, KeyRound } from 'lucide-react'
+import { Settings, Tag, FolderOpen, KeyRound, Loader2, LogIn, CheckCircle2, XCircle } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -24,15 +24,50 @@ export default function StepConfig({ config, dispatch, projects, activeProject }
   const [credential, setCredential] = useState<UserCredential | null>(null)
   const [credentialLoading, setCredentialLoading] = useState(false)
   const [showCredentialsForm, setShowCredentialsForm] = useState(false)
+  const [loginTestState, setLoginTestState] = useState<'idle' | 'loading' | 'success' | 'fail'>('idle')
+  const [loginTestResult, setLoginTestResult] = useState<{ steps: number; failReason?: string } | null>(null)
 
   useEffect(() => {
     if (!activeProject) { setCredential(null); return }
     setCredentialLoading(true)
+    setLoginTestState('idle')
+    setLoginTestResult(null)
     fetch(`/api/projects/${activeProject.id}/credentials`)
       .then(r => r.json())
       .then(data => { setCredential(data); setCredentialLoading(false) })
       .catch(() => setCredentialLoading(false))
   }, [activeProject?.id])
+
+  const testLogin = async () => {
+    if (!activeProject || !config.url) return
+    setLoginTestState('loading')
+    setLoginTestResult(null)
+    try {
+      const res = await fetch('/api/test-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: activeProject.id,
+          url: config.url,
+          aiProvider:       localStorage.getItem('ai_provider') ?? 'gemini',
+          geminiApiKey:     localStorage.getItem('gemini_api_key') ?? undefined,
+          openrouterApiKey: localStorage.getItem('openrouter_api_key') ?? undefined,
+          openrouterModel:  localStorage.getItem('openrouter_model') ?? undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setLoginTestState('fail')
+        setLoginTestResult({ steps: 0, failReason: data.error })
+        return
+      }
+      setLoginTestState(data.success ? 'success' : 'fail')
+      setLoginTestResult({ steps: data.steps, failReason: data.failReason })
+    } catch (err) {
+      setLoginTestState('fail')
+      setLoginTestResult({ steps: 0, failReason: err instanceof Error ? err.message : 'Request failed' })
+    }
+  }
 
   const set = (key: keyof Config, val: unknown) =>
     dispatch({ type: 'SET_CONFIG', payload: { [key]: val } as Partial<Config> })
@@ -127,12 +162,42 @@ export default function StepConfig({ config, dispatch, projects, activeProject }
           ) : credentialLoading ? (
             <p className="text-xs text-gray-400">Loading…</p>
           ) : credential ? (
-            <div className="flex items-center justify-between gap-4">
-              <div className="text-xs text-gray-600 font-mono space-y-0.5 min-w-0">
-                <div className="truncate">{credential.email || credential.username}</div>
-                <div className="text-gray-400">{'•'.repeat(8)}</div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-xs text-gray-600 font-mono space-y-0.5 min-w-0">
+                  <div className="truncate">{credential.email || credential.username}</div>
+                  <div className="text-gray-400">{'•'.repeat(8)}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={testLogin}
+                    disabled={loginTestState === 'loading' || !config.url}
+                  >
+                    {loginTestState === 'loading'
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <LogIn className="w-3.5 h-3.5" />}
+                    {loginTestState === 'loading' ? 'Testing…' : 'Test Login'}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setShowCredentialsForm(true)}>Edit</Button>
+                </div>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setShowCredentialsForm(true)}>Edit</Button>
+              {loginTestResult && (
+                <div className={cn(
+                  'text-xs px-2.5 py-1.5 rounded-md border flex items-center gap-1.5',
+                  loginTestState === 'success'
+                    ? 'bg-green-50 border-green-200 text-green-700'
+                    : 'bg-red-50 border-red-200 text-red-600'
+                )}>
+                  {loginTestState === 'success'
+                    ? <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                    : <XCircle className="w-3.5 h-3.5 flex-shrink-0" />}
+                  {loginTestState === 'success'
+                    ? `Login succeeded in ${loginTestResult.steps} step${loginTestResult.steps !== 1 ? 's' : ''}`
+                    : `Login failed: ${loginTestResult.failReason}`}
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex items-center justify-between">

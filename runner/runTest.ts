@@ -1,11 +1,13 @@
 import { chromium } from 'playwright'
-import { GoogleGenAI } from '@google/genai'
-import { Config, Story, TestCase, Finding } from '@/types'
+import { Config, Story, TestCase, Finding, LoginCredentials } from '@/types'
 import { buildStepPrompt } from '@/lib/promptBuilder'
+import { getDomContext, callAI, performLogin } from './login'
 
 export type AIProvider =
   | { provider: 'gemini'; apiKey: string }
   | { provider: 'openrouter'; apiKey: string; model: string }
+
+export { performLogin }
 
 const MAX_STEPS = 15
 
@@ -21,81 +23,6 @@ interface AgentAction {
   findings?: Omit<Finding, 'id' | 'tc_id' | 'screenshot_base64'>[]
 }
 
-async function getDomContext(page: import('playwright').Page): Promise<Record<string, unknown>> {
-  return page.evaluate(() => {
-    const inputs = Array.from(document.querySelectorAll('input:not([type=hidden])')).slice(0, 20).map(el => {
-      const e = el as HTMLInputElement
-      return {
-        type: e.type,
-        name: e.name || undefined,
-        id: e.id || undefined,
-        placeholder: e.placeholder || undefined,
-        ariaLabel: e.getAttribute('aria-label') || undefined,
-        filled: e.type === 'password' ? (e.value.length > 0 ? 'yes' : 'no') : (e.value ? 'yes' : 'no'),
-      }
-    })
-    const buttons = Array.from(document.querySelectorAll('button, input[type=submit]')).slice(0, 10).map(el => ({
-      text: (el as HTMLElement).innerText?.trim().slice(0, 60) || (el as HTMLInputElement).value,
-      type: (el as HTMLButtonElement).type,
-      disabled: (el as HTMLButtonElement).disabled,
-    }))
-    const links = Array.from(document.querySelectorAll('a[href]')).slice(0, 15).map(el => ({
-      text: (el as HTMLAnchorElement).innerText?.trim().slice(0, 60),
-      href: (el as HTMLAnchorElement).href,
-    }))
-    return {
-      url: window.location.href,
-      title: document.title,
-      inputs,
-      buttons,
-      links,
-    }
-  }).catch(() => ({ url: '', title: '', inputs: [], buttons: [], links: [] }))
-}
-
-async function callAI(provider: AIProvider, screenshotData: string, prompt: string): Promise<string> {
-  if (provider.provider === 'gemini') {
-    const ai = new GoogleGenAI({ apiKey: provider.apiKey })
-    const result = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [{
-        role: 'user',
-        parts: [
-          { inlineData: { mimeType: 'image/png', data: screenshotData } },
-          { text: prompt },
-        ],
-      }],
-    })
-    return (result.text ?? '').trim()
-  }
-
-  // OpenRouter — OpenAI-compatible vision API
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${provider.apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: provider.model,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image_url', image_url: { url: `data:image/png;base64,${screenshotData}` } },
-          { type: 'text', text: prompt },
-        ],
-      }],
-    }),
-  })
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '')
-    throw new Error(`OpenRouter error ${response.status}: ${body.slice(0, 200)}`)
-  }
-
-  const json = await response.json()
-  return (json.choices?.[0]?.message?.content ?? '').trim()
-}
 
 async function runTestCase(
   page: import('playwright').Page,
@@ -230,7 +157,8 @@ export async function runAllTests(
   config: Config,
   stories: Story[],
   onProgress: (event: Record<string, unknown>) => void,
-  provider: AIProvider
+  provider: AIProvider,
+  credentials?: LoginCredentials
 ) {
   console.log(`[runAllTests] Launching browser for ${stories.length} stories`)
 
@@ -245,6 +173,18 @@ export async function runAllTests(
 
   const allTcs: TestCase[] = []
   const allFindings: Finding[] = []
+
+  // Auto-login — runs once before stories, session shared via browser context
+  if (credentials?.password && (credentials.email || credentials.username)) {
+    onProgress({ type: 'login_start' })
+    const loginResult = await performLogin(context, config.url, credentials, provider, (reason) => {
+      onProgress({ type: 'login_step', reason })
+    })
+    onProgress({ type: 'login_done', ...loginResult })
+    if (!loginResult.success) {
+      console.warn('[runAllTests] Login step did not complete:', loginResult.failReason)
+    }
+  }
 
   for (const [i, story] of stories.entries()) {
     const tcId = `TC-${String(i + 1).padStart(2, '0')}`

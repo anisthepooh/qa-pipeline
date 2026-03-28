@@ -1,4 +1,4 @@
-import { Config, Story } from '@/types'
+import { Config, Story, LoginCredentials } from '@/types'
 
 const CATEGORY_MAP: Record<string, string> = {
   flow: 'user_flow_validity',
@@ -107,4 +107,45 @@ Decide the NEXT single action. Return ONLY valid JSON with no prose or markdown:
 }
 
 Use "done" when the story goal is fully achieved OR when you have enough evidence to evaluate it (success or failure).`
+}
+
+export function buildLoginPrompt(
+  credentials: LoginCredentials,
+  dom: Record<string, unknown>,
+  actionHistory: string[]
+): string {
+  return `You are a browser automation agent. Your ONLY job right now is to log in to the application.
+
+Credentials:
+  Email: ${credentials.email || '(not provided)'}
+  Username: ${credentials.username || '(not provided)'}
+  Password: ${credentials.password || '(not provided)'}
+
+Current state:
+  URL: ${dom.url}
+  Title: ${dom.title}
+  Inputs: ${JSON.stringify(dom.inputs)}
+  Buttons: ${JSON.stringify(dom.buttons)}
+  Links: ${JSON.stringify(dom.links)}
+
+Actions taken so far: ${actionHistory.length ? actionHistory.join(' → ') : 'none'}
+
+Rules:
+- Fill the login form and submit it.
+- If you see a dashboard, home page, or any page that is clearly post-login, return done+PASS immediately.
+- If a submit button just became disabled but the page has NOT changed and there is no error message, the server is still processing — use action "navigate" with the SAME current URL to refresh and check the result, or simply click the next logical element. Do NOT return done+FAIL just because the button is disabled.
+- Only return done+FAIL if you see an explicit error message, a CAPTCHA, MFA challenge, or the same login page after multiple failed attempts.
+- Never navigate away from the app origin.
+- Return ONLY valid JSON with no prose or markdown.
+
+Return:
+{
+  "action": "navigate" | "click" | "fill" | "done",
+  "url": "absolute URL (navigate only)",
+  "selector": "CSS selector — prefer #id, [name=x], [type=x], or button:has-text(\\"Label\\")",
+  "value": "text to type (fill only)",
+  "reason": "one line explaining why",
+  "status": "PASS" | "FAIL" (done only),
+  "actual_outcome": "what you observed (done only)"
+}`
 }

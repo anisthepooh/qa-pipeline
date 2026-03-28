@@ -4,6 +4,7 @@ export const maxDuration = 300
 import { NextRequest, NextResponse } from 'next/server'
 import { runAllTests, AIProvider } from '@/runner/runTest'
 import { getPbFromCookie, getPbAdmin } from '@/lib/pocketbase'
+import { LoginCredentials } from '@/types'
 
 export async function POST(req: NextRequest) {
   const cookie = req.headers.get('cookie') || ''
@@ -46,6 +47,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Maximum 15 stories per run' }, { status: 400 })
   }
 
+  // Fetch credentials server-side (never sent from client)
+  let credentials: LoginCredentials | undefined
+  const pid = projectId || config.projectId
+  if (pid) {
+    try {
+      const adminPb = await getPbAdmin()
+      const list = await adminPb.collection('user_credentials').getList(1, 1, {
+        filter: `project = "${pid}"`,
+      })
+      const cred = list.items[0]
+      if (cred?.password) {
+        credentials = {
+          email: cred.email || undefined,
+          username: cred.username || undefined,
+          password: cred.password,
+        }
+      }
+    } catch { /* no credentials — proceed without login */ }
+  }
+
   const userId = pb.authStore.model?.id
 
   const stream = new ReadableStream({
@@ -56,7 +77,7 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        const result = await runAllTests(config, stories, send, provider)
+        const result = await runAllTests(config, stories, send, provider, credentials)
 
         // Save to PocketBase
         try {

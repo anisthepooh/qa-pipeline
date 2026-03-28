@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { usePipeline } from '@/context/PipelineContext'
@@ -11,8 +11,10 @@ import StepStories from '@/components/setup/StepStories'
 import StepRun from '@/components/setup/StepRun'
 import { STEPS } from '@/app/constants/constants'
 
-export default function SetupPage() {
-  const [step, setStep] = useState(0)
+function SetupPage() {
+  const searchParams = useSearchParams()
+  const initialStep = Math.min(Math.max(parseInt(searchParams.get('step') ?? '0', 10) || 0, 0), STEPS.length - 1)
+  const [step, setStep] = useState(initialStep)
   const { state, dispatch } = usePipeline()
   const { config, stories, projects, activeProject } = state
   const router = useRouter()
@@ -45,6 +47,7 @@ export default function SetupPage() {
           <StepStories
             stories={stories}
             dispatch={dispatch as React.Dispatch<{ type: string; payload: unknown }>}
+            projectId={config.projectId}
           />
         )}
         {step === 2 && (
@@ -72,5 +75,13 @@ export default function SetupPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function SetupPageWrapper() {
+  return (
+    <Suspense>
+      <SetupPage />
+    </Suspense>
   )
 }

@@ -33,6 +33,7 @@ export interface Config {
 }
 
 export interface Story {
+  id?: string
   title: string
   body: string
 }
@@ -107,4 +108,6 @@ export interface RunResult {
   summary: RunSummary & { user_flow_validity?: string }
   test_cases: TestCase[]
   findings: Finding[]
+  stories?: Story[]
+  categories?: string[]
 }

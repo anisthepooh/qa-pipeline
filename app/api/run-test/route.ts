@@ -82,9 +82,29 @@ export async function POST(req: NextRequest) {
         // Save to PocketBase
         try {
           const adminPb = await getPbAdmin()
+          const pid = projectId || config.projectId || undefined
+
+          // Resolve story IDs — create library records for any story that isn't saved yet
+          const storyIds: string[] = []
+          for (const story of stories) {
+            if (story.id) {
+              storyIds.push(story.id)
+            } else if (pid) {
+              try {
+                const s = await adminPb.collection('stories').create({
+                  user: userId,
+                  project: pid,
+                  title: story.title,
+                  body: story.body ?? '',
+                })
+                storyIds.push(s.id)
+              } catch { /* non-blocking — skip if story creation fails */ }
+            }
+          }
+
           const record = await adminPb.collection('runs').create({
             user: userId,
-            project: projectId || config.projectId || undefined,
+            project: pid,
             name: result.run.name,
             url: result.run.url,
             tester: result.run.tester,
@@ -92,6 +112,7 @@ export async function POST(req: NextRequest) {
             summary: result.summary,
             test_cases: result.test_cases,
             findings: result.findings,
+            stories: storyIds,
             categories: config.categories || [],
           })
           send({ type: 'complete', result: { ...result, id: record.id } })

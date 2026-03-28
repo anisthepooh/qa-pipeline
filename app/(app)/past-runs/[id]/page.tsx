@@ -3,15 +3,19 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { RefreshCw } from 'lucide-react'
 import StatCard from '@/components/StatCard'
 import SeverityBreakdown from '@/components/report/SeverityBreakdown'
 import { RunDetailHeader } from '@/components/past-runs/RunDetailHeader'
 import { FindingsSection } from '@/components/past-runs/FindingsSection'
+import { Button } from '@/components/ui/button'
+import { usePipeline } from '@/context/PipelineContext'
 import { RunResult } from '@/types'
 
 export default function PastRunDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  const { dispatch } = usePipeline()
   const [run, setRun] = useState<RunResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
@@ -53,12 +57,34 @@ export default function PastRunDetailPage() {
     )
   }
 
+  function handleRerun() {
+    if (!run) return
+    dispatch({
+      type: 'SET_CONFIG',
+      payload: {
+        url: run.run.url,
+        runName: run.run.name,
+        tester: run.run.tester,
+        categories: run.categories || [],
+        projectId: run.projectId,
+      },
+    })
+    dispatch({ type: 'REORDER_STORIES', payload: run.stories || [] })
+    router.push('/setup?step=2')
+  }
+
   const { summary = {} as typeof run.summary, findings = [] } = run
   const bySeverity = summary.by_severity || {}
 
   return (
     <div className="fade-in">
       <RunDetailHeader run={run} onBack={() => router.push('/past-runs')} />
+      <div className="px-7 pt-4">
+        <Button onClick={handleRerun} variant="outline" size="sm">
+          <RefreshCw className="w-4 h-4 mr-1.5" />
+          Rerun
+        </Button>
+      </div>
       <div className="p-7 max-w-3xl space-y-6">
         <div className="grid grid-cols-4 gap-3">
           <StatCard value={summary.passed ?? 0} label="Passed" color="green" />

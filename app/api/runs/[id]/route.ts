@@ -11,13 +11,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   try {
-    const r = await pb.collection('runs').getOne(id)
+    const r = await pb.collection('runs').getOne(id, { expand: 'stories' })
     return NextResponse.json({
       id: r.id,
+      projectId: r.project || undefined,
       run: { name: r.name, url: r.url, tester: r.tester, date: r.date },
       summary: r.summary,
       test_cases: r.test_cases || [],
       findings: r.findings || [],
+      stories: (r.expand?.stories ?? []).map((s: { id: string; title: string; body: string }) => ({
+        id: s.id,
+        title: s.title,
+        body: s.body,
+      })),
+      categories: r.categories || [],
     })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error'

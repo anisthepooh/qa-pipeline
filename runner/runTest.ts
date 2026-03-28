@@ -1,21 +1,13 @@
 import { chromium } from 'playwright'
 import { GoogleGenAI } from '@google/genai'
 import { Config, Story, TestCase, Finding } from '@/types'
+import { buildStepPrompt } from '@/lib/promptBuilder'
 
 export type AIProvider =
   | { provider: 'gemini'; apiKey: string }
   | { provider: 'openrouter'; apiKey: string; model: string }
 
 const MAX_STEPS = 15
-
-const CATEGORY_MAP: Record<string, string> = {
-  flow: 'user_flow_validity',
-  deadend: 'dead_ends',
-  bugs: 'bugs_and_failures',
-  ux: 'ux_best_practices',
-  design: 'design_cohesion',
-  a11y: 'accessibility',
-}
 
 interface AgentAction {
   action: 'navigate' | 'click' | 'fill' | 'done'
@@ -125,8 +117,6 @@ async function runTestCase(
     if (res.status() >= 400) networkErrors.push(`${res.status()} ${res.url()}`)
   })
 
-  const categories = (config.categories || []).map(c => CATEGORY_MAP[c] || c).join(', ')
-
   const snap = async (label: string) => {
     const buf = await page.screenshot({ fullPage: false })
     const data = buf.toString('base64')
@@ -142,50 +132,7 @@ async function runTestCase(
     const screenshotData = await snap(`Step ${step + 1}`)
     const dom = await getDomContext(page)
 
-    const stepPrompt = `You are a QA engineer controlling a browser via Playwright to test a user story.
-
-Story: ${tcId} — ${story.title}
-Goal:
-${story.body}
-
-Current state:
-  URL: ${dom.url}
-  Title: ${dom.title}
-  Inputs: ${JSON.stringify(dom.inputs)}
-  Buttons: ${JSON.stringify(dom.buttons)}
-  Links: ${JSON.stringify(dom.links)}
-  Console errors: ${consoleErrors.slice(-5).join(' | ') || 'none'}
-  Network errors (4xx/5xx): ${networkErrors.slice(-5).join(' | ') || 'none'}
-
-Actions taken so far: ${actionHistory.length ? actionHistory.join(' → ') : 'none'}
-Categories to evaluate: ${categories}
-
-Decide the NEXT single action. Return ONLY valid JSON with no prose or markdown:
-{
-  "action": "navigate" | "click" | "fill" | "done",
-  "url": "absolute URL (navigate only)",
-  "selector": "CSS selector — prefer #id, [name=x], [type=x], or button:has-text(\"Label\") for buttons",
-  "value": "text to type (fill only)",
-  "reason": "one line explaining why",
-
-  // Include only when action === "done":
-  "status": "PASS" | "FAIL" | "PARTIAL",
-  "actual_outcome": "concise description of what was observed",
-  "findings": [
-    {
-      "title": "short imperative title",
-      "severity": "critical|high|medium|low",
-      "category": "bugs_and_failures|accessibility|ux_best_practices|design_cohesion|dead_ends|user_flow_validity",
-      "description": "2-3 factual sentences",
-      "location": "url path or element",
-      "evidence": "what was observed",
-      "expected": "what should happen",
-      "actual": "what does happen"
-    }
-  ]
-}
-
-Use "done" when the story goal is fully achieved OR when you have enough evidence to evaluate it (success or failure).`
+    const stepPrompt = buildStepPrompt(tcId, story, config, dom, consoleErrors, networkErrors, actionHistory)
 
     const rawText = (await callAI(provider, screenshotData, stepPrompt))
       .replace(/^```json\s*/i, '').replace(/\s*```$/i, '')

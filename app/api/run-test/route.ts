@@ -2,7 +2,7 @@ export const runtime = 'nodejs'
 export const maxDuration = 300
 
 import { NextRequest, NextResponse } from 'next/server'
-import { runAllTests } from '@/runner/runTest'
+import { runAllTests, AIProvider } from '@/runner/runTest'
 import { getPbFromCookie, getPbAdmin } from '@/lib/pocketbase'
 
 export async function POST(req: NextRequest) {
@@ -13,15 +13,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { config, stories, geminiApiKey, projectId } = await req.json()
+  const { config, stories, projectId, aiProvider, geminiApiKey, openrouterApiKey, openrouterModel } = await req.json()
 
   if (!config?.url || !stories?.length) {
     return NextResponse.json({ error: 'config.url and stories are required' }, { status: 400 })
   }
-  const resolvedApiKey = geminiApiKey || process.env.GEMINI_API_KEY
-  if (!resolvedApiKey) {
-    return NextResponse.json({ error: 'Gemini API key is not set. Add it in Settings.' }, { status: 500 })
+
+  let provider: AIProvider
+  if (!aiProvider || aiProvider === 'gemini') {
+    const resolvedKey = geminiApiKey || process.env.GEMINI_API_KEY
+    if (!resolvedKey) {
+      return NextResponse.json(
+        { error: 'Gemini API key is not set. Add it in Settings or set GEMINI_API_KEY on the server.' },
+        { status: 400 }
+      )
+    }
+    provider = { provider: 'gemini', apiKey: resolvedKey }
+  } else if (aiProvider === 'openrouter') {
+    const resolvedKey = openrouterApiKey || process.env.OPENROUTER_API_KEY
+    if (!resolvedKey) {
+      return NextResponse.json(
+        { error: 'OpenRouter API key is not set. Add it in Settings.' },
+        { status: 400 }
+      )
+    }
+    provider = { provider: 'openrouter', apiKey: resolvedKey, model: openrouterModel || 'google/gemini-2.5-flash' }
+  } else {
+    return NextResponse.json({ error: `Unknown AI provider: ${aiProvider}` }, { status: 400 })
   }
+
   if (stories.length > 15) {
     return NextResponse.json({ error: 'Maximum 15 stories per run' }, { status: 400 })
   }
@@ -36,7 +56,7 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        const result = await runAllTests(config, stories, send, resolvedApiKey)
+        const result = await runAllTests(config, stories, send, provider)
 
         // Save to PocketBase
         try {

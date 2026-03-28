@@ -51,7 +51,14 @@ const xhrRef = useRef<AbortController | null>(null)
     fetch('/api/run-test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ config, stories, geminiApiKey: localStorage.getItem('gemini_api_key') ?? undefined }),
+      body: JSON.stringify({
+        config,
+        stories,
+        aiProvider:       localStorage.getItem('ai_provider') ?? 'gemini',
+        geminiApiKey:     localStorage.getItem('gemini_api_key') ?? undefined,
+        openrouterApiKey: localStorage.getItem('openrouter_api_key') ?? undefined,
+        openrouterModel:  localStorage.getItem('openrouter_model') ?? undefined,
+      }),
       signal: ctrl.signal,
     })
       .then(async res => {

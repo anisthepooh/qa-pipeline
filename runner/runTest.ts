@@ -2,6 +2,10 @@ import { chromium } from 'playwright'
 import { GoogleGenAI } from '@google/genai'
 import { Config, Story, TestCase, Finding } from '@/types'
 
+export type AIProvider =
+  | { provider: 'gemini'; apiKey: string }
+  | { provider: 'openrouter'; apiKey: string; model: string }
+
 const MAX_STEPS = 15
 
 const CATEGORY_MAP: Record<string, string> = {
@@ -57,12 +61,56 @@ async function getDomContext(page: import('playwright').Page): Promise<Record<st
   }).catch(() => ({ url: '', title: '', inputs: [], buttons: [], links: [] }))
 }
 
+async function callAI(provider: AIProvider, screenshotData: string, prompt: string): Promise<string> {
+  if (provider.provider === 'gemini') {
+    const ai = new GoogleGenAI({ apiKey: provider.apiKey })
+    const result = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [{
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType: 'image/png', data: screenshotData } },
+          { text: prompt },
+        ],
+      }],
+    })
+    return (result.text ?? '').trim()
+  }
+
+  // OpenRouter — OpenAI-compatible vision API
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${provider.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: provider.model,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${screenshotData}` } },
+          { type: 'text', text: prompt },
+        ],
+      }],
+    }),
+  })
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '')
+    throw new Error(`OpenRouter error ${response.status}: ${body.slice(0, 200)}`)
+  }
+
+  const json = await response.json()
+  return (json.choices?.[0]?.message?.content ?? '').trim()
+}
+
 async function runTestCase(
   page: import('playwright').Page,
   tcId: string,
   story: Story,
   config: Config,
-  ai: GoogleGenAI,
+  provider: AIProvider,
   onStep: (reason: string) => void
 ): Promise<{ tc: TestCase; findings: Omit<Finding, 'id'>[] }> {
   const consoleErrors: string[] = []
@@ -139,18 +187,8 @@ Decide the NEXT single action. Return ONLY valid JSON with no prose or markdown:
 
 Use "done" when the story goal is fully achieved OR when you have enough evidence to evaluate it (success or failure).`
 
-    const geminiResult = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [{
-        role: 'user',
-        parts: [
-          { inlineData: { mimeType: 'image/png', data: screenshotData } },
-          { text: stepPrompt },
-        ],
-      }],
-    })
-
-    const rawText = (geminiResult.text ?? '').trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '')
+    const rawText = (await callAI(provider, screenshotData, stepPrompt))
+      .replace(/^```json\s*/i, '').replace(/\s*```$/i, '')
     let parsed: AgentAction = { action: 'done', status: 'PARTIAL', actual_outcome: 'Could not parse AI response', findings: [] }
     try {
       parsed = JSON.parse(rawText)
@@ -245,9 +283,8 @@ export async function runAllTests(
   config: Config,
   stories: Story[],
   onProgress: (event: Record<string, unknown>) => void,
-  apiKey: string
+  provider: AIProvider
 ) {
-  const ai = new GoogleGenAI({ apiKey })
   console.log(`[runAllTests] Launching browser for ${stories.length} stories`)
 
   const browser = await chromium.launch({
@@ -272,7 +309,7 @@ export async function runAllTests(
         setTimeout(() => reject(new Error('Test case timed out after 120s')), 120000)
       )
       const { tc, findings } = await Promise.race([
-        runTestCase(page, tcId, story, config, ai, (reason) => {
+        runTestCase(page, tcId, story, config, provider, (reason) => {
           onProgress({ type: 'step', tcId, reason })
         }),
         timeout,

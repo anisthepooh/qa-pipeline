@@ -1,6 +1,7 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
+import { useState, useEffect } from 'react'
 import { usePipeline } from '@/context/PipelineContext'
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -17,6 +18,17 @@ export default function Topbar() {
   const pathname = usePathname()
   const { state } = usePipeline()
   const { config, activeRun, isRunning } = state
+  const [modelLabel, setModelLabel] = useState('gemini-2.5-flash')
+
+  useEffect(() => {
+    const p = localStorage.getItem('ai_provider') ?? 'gemini'
+    if (p === 'openrouter') {
+      const m = localStorage.getItem('openrouter_model') ?? 'google/gemini-2.5-flash'
+      setModelLabel(m.split('/').pop() ?? m)
+    } else {
+      setModelLabel('gemini-2.5-flash')
+    }
+  }, [])
 
   const title = PAGE_TITLES[pathname] || 'QA Pipeline'
   const isComplete = !!activeRun && !isRunning
@@ -37,7 +49,7 @@ export default function Topbar() {
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="flex-shrink-0 text-blue-400">
           <path d="M12 2L9 9H2L7.5 13.5L5.5 21L12 16.5L18.5 21L16.5 13.5L22 9H15L12 2Z" fill="currentColor" />
         </svg>
-        gemini-2.5-flash
+        {modelLabel}
       </span>
 
       <div className={cn(
